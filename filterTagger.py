@@ -421,7 +421,10 @@ def main():
     try:
         filt = saved_filter(stash, cfg["filterName"])
     except FilterError as e:
-        log("w", f"{e}: nothing tagged. Set the plugin's 'Saved filter' to the name of a saved scene filter.")
+        # a warning per hook would flood the log while the filter is not
+        # yet saved; the task is where someone looks for the reason
+        log("w" if mode == "all" else "d",
+            f"{e}: nothing tagged. Set the plugin's 'Saved filter' to the name of a saved scene filter.")
         print(json.dumps({"output": "ok"}))
         return
     tag_id = ensure_tag(stash, cfg["tagName"])
