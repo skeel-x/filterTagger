@@ -1,0 +1,43 @@
+name: Filter Tagger
+description: Adds a tag to every scene a saved scene filter selects, as soon as the scene is created or changed and on demand across the library. Describe the scenes that should carry the tag with an ordinary saved filter (for example "studio is one of my favourites, not interactive, not tagged FunGen"); the plugin only ever adds the tag, so put "tag is not X" in the filter and whatever removes the tag keeps the scene out.
+version: 1.0.0
+url: https://github.com/skeel-x/filterTagger
+
+settings:
+  filterName:
+    displayName: Saved filter
+    description: The name of the saved scene filter (Scenes page, saved filters) that selects the scenes to tag. Default FunGen.
+    type: STRING
+  tagName:
+    displayName: Tag to add
+    description: Added to every scene the filter selects; created if it does not exist. Default FunGen.
+    type: STRING
+  skipWithFunscript:
+    displayName: Skip scenes with a funscript beside the video
+    description: A scene whose video has a .funscript next to it on disk is not tagged, even if Stash has not scanned it yet and still lists the scene as not interactive. Stops a scene from being queued again in the moment between the script being written and the next scan. Default on.
+    type: BOOLEAN
+  apiKey:
+    displayName: Stash API key (for long tasks)
+    description: Optional. Stash ends a plugin task's session after an hour; with your API key (Settings -> Security) the plugin authenticates with it instead and a long run finishes.
+    type: STRING
+
+exec:
+  - python
+  - "{pluginDir}/filterTagger.py"
+interface: raw
+errLog: info
+
+tasks:
+  - name: Tag all matching scenes now
+    description: Add the tag to every scene the saved filter selects today. Scenes that already have it, or have a funscript beside the video, are left alone.
+    defaultArgs:
+      mode: all
+
+hooks:
+  - name: Tag on create and update
+    description: Tag a scene as soon as it is created or changed and matches the saved filter.
+    triggeredBy:
+      - Scene.Create.Post
+      - Scene.Update.Post
+    defaultArgs:
+      mode: hook
