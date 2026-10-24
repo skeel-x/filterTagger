@@ -11,7 +11,13 @@ SAVED = [{"id": "61", "name": "FunGen", "mode": "SCENES",
                             "tags": {"modifier": "EXCLUDES",
                                      "value": {"depth": 0, "excluded": [], "items": [{"id": "t9", "label": "FunGen"}]}}},
           "find_filter": {"q": None}},
-         {"id": "62", "name": "Other", "mode": "SCENES", "object_filter": {}, "find_filter": None}]
+         {"id": "62", "name": "Other", "mode": "SCENES", "object_filter": {}, "find_filter": None},
+         {"id": "63", "name": "Studios", "mode": "SCENES",
+          "object_filter": {"performers": {"modifier": "INCLUDES",
+                                           "value": {"excluded": [], "items": [{"id": "p1", "label": "P"}]}},
+                            "tags": {"modifier": "EXCLUDES",
+                                     "value": {"depth": 0, "excluded": [], "items": [{"id": "t9", "label": "FunGen"}]}}},
+          "find_filter": {"q": None}}]
 
 
 def scene(sid, tags=(), path="/media/x/{sid}.mp4"):
@@ -24,8 +30,10 @@ class FakeStash:
     tagging a scene removes it from the set, as a filter excluding the tag
     would."""
 
-    def __init__(self, matching=(), tags=("FunGen",), saved=SAVED):
-        self.scenes = {s["id"]: s for s in matching}
+    def __init__(self, matching=(), tags=("FunGen",), saved=SAVED, performers=()):
+        self.scenes = {s["id"]: s for s in list(matching) + list(performers)}
+        # the "Studios" filter (a performers criterion) selects this set
+        self.sets = {None: {s["id"] for s in matching}, "performers": {s["id"] for s in performers}}
         self.tags = {n: f"id:{n}" for n in tags}
         self.saved = saved
         self.writes = []
@@ -45,7 +53,7 @@ class FakeStash:
             return {"tagCreate": {"id": self.tags[v["i"]["name"]]}}
         if "findScenes" in query:
             f = v["f"]
-            ids = sorted(self.scenes, key=int)
+            ids = sorted(self.sets["performers" if "performers" in f else None], key=int)
             if "id" in f:
                 ids = [i for i in ids if int(i) == f["id"]["value"]]
             ff = v.get("ff") or {}
@@ -59,7 +67,8 @@ class FakeStash:
             if s is not None:
                 s["tags"] = [{"id": t} for t in i["tag_ids"]]
                 if "id:FunGen" in i["tag_ids"]:
-                    del self.scenes[i["id"]]  # the filter excludes the tag
+                    for ids in self.sets.values():
+                        ids.discard(i["id"])  # the filters exclude the tag
             return {"sceneUpdate": {"id": i["id"]}}
         raise AssertionError("unexpected query " + query)
 
@@ -93,6 +102,24 @@ class SavedFilter(unittest.TestCase):
     def test_empty_name_refused(self):
         with self.assertRaises(ft.FilterError):
             ft.saved_filter(FakeStash(), "")
+
+    def test_setting_holds_a_comma_separated_list(self):
+        self.assertEqual(ft.filter_names(" FunGen, Studios ,, "), ["FunGen", "Studios"])
+        self.assertEqual(ft.filter_names(""), [])
+        self.assertEqual(ft.filter_names(None), [])
+
+    def test_all_named_filters_are_loaded_in_order(self):
+        fs = ft.saved_filters(FakeStash(), "Studios, FunGen")
+        self.assertEqual([f.name for f in fs], ["Studios", "FunGen"])
+
+    def test_one_missing_name_stops_the_lot_and_is_named(self):
+        with self.assertRaises(ft.FilterError) as e:
+            ft.saved_filters(FakeStash(), "FunGen, Nope")
+        self.assertIn("Nope", str(e.exception))
+
+    def test_no_names_refused(self):
+        with self.assertRaises(ft.FilterError):
+            ft.saved_filters(FakeStash(), " , ")
 
 
 class Hook(unittest.TestCase):
@@ -148,12 +175,40 @@ class Hook(unittest.TestCase):
             ft.run_hook(st, cfg(), ft.saved_filter(st, "FunGen"), "id:FunGen", {"id": "3"})
 
 
+class HookAnyFilter(unittest.TestCase):
+    def test_scene_in_the_second_filter_only_is_tagged_and_the_filter_named(self):
+        st = FakeStash(matching=[scene("7")], performers=[scene("8")])
+        fs = ft.saved_filters(st, "FunGen, Studios")
+        r, name = ft.run_hook_any(st, cfg(), fs, "id:FunGen", {"id": "8"})
+        self.assertEqual((r, name), ("tagged", "Studios"))
+        self.assertEqual([w["id"] for w in st.writes], ["8"])
+
+    def test_scene_in_no_filter(self):
+        st = FakeStash(matching=[scene("7")], performers=[scene("8")])
+        fs = ft.saved_filters(st, "FunGen, Studios")
+        self.assertEqual(ft.run_hook_any(st, cfg(), fs, "id:FunGen", {"id": "9"}), ("no match", None))
+        self.assertEqual(st.writes, [])
+
+    def test_scene_in_both_filters_is_written_once(self):
+        st = FakeStash(matching=[scene("7")], performers=[scene("7")])
+        fs = ft.saved_filters(st, "FunGen, Studios")
+        self.assertEqual(ft.run_hook_any(st, cfg(), fs, "id:FunGen", {"id": "7"}), ("tagged", "FunGen"))
+        self.assertEqual(len(st.writes), 1)
+
+
 class TagAll(unittest.TestCase):
+    def test_union_of_filters_tags_each_scene_once(self):
+        st = FakeStash(matching=[scene("1"), scene("2")], performers=[scene("2"), scene("3")])
+        fs = ft.saved_filters(st, "FunGen, Studios")
+        n = ft.run_all(st, cfg(), fs, "id:FunGen")
+        self.assertEqual(n, 3)
+        self.assertEqual(sorted(w["id"] for w in st.writes), ["1", "2", "3"])
+
     def test_tags_every_match_even_as_the_result_set_shrinks(self):
         # the filter excludes the tag, so each write removes a scene from the
         # query: paging live would skip every other page
         st = FakeStash(matching=[scene(str(i)) for i in range(1, 251)])
-        n = ft.run_all(st, cfg(), ft.saved_filter(st, "FunGen"), "id:FunGen")
+        n = ft.run_all(st, cfg(), [ft.saved_filter(st, "FunGen")], "id:FunGen")
         self.assertEqual(n, 250)
         self.assertEqual(sorted(int(w["id"]) for w in st.writes), list(range(1, 251)))
 
@@ -162,7 +217,7 @@ class TagAll(unittest.TestCase):
             video = os.path.join(d, "s.mp4")
             open(os.path.join(d, "s.funscript"), "w").close()
             st = FakeStash(matching=[scene("1", path=video), scene("2", tags=["id:FunGen"]), scene("3")])
-            n = ft.run_all(st, cfg(), ft.saved_filter(st, "FunGen"), "id:FunGen")
+            n = ft.run_all(st, cfg(), [ft.saved_filter(st, "FunGen")], "id:FunGen")
             self.assertEqual(n, 1)
             self.assertEqual([w["id"] for w in st.writes], ["3"])
 

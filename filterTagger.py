@@ -342,6 +342,23 @@ def saved_filter(stash, name):
                        find_filter(row.get("find_filter")))
 
 
+def filter_names(setting):
+    """The 'Saved filter' setting as a list: comma-separated names, blanks
+    dropped. Stash ANDs every criterion inside one filter, so "these
+    performers or these studios" takes one filter per branch."""
+    return [n.strip() for n in (setting or "").split(",") if n.strip()]
+
+
+def saved_filters(stash, setting):
+    """Every saved filter the setting names, in that order. One missing
+    name stops the lot: tagging through the rest would quietly tag less
+    than asked."""
+    names = filter_names(setting)
+    if not names:
+        raise FilterError("no saved filter name is set")
+    return [saved_filter(stash, n) for n in names]
+
+
 # ---------------------------------------------------------------- tagging
 
 def funscript_path(path):
@@ -379,10 +396,18 @@ def run_hook(stash, cfg, filt, tag_id, ctx):
     return tag_scene(stash, cfg, found[0], tag_id)
 
 
-def run_all(stash, cfg, filt, tag_id):
-    """Every scene the filter selects, from the task. The ids are collected
-    first: a filter that excludes the tag loses a scene on every write, and
-    paging the live result would skip past half of them."""
+def run_hook_any(stash, cfg, filts, tag_id, ctx):
+    """The hook against several filters: the first one that selects the
+    scene decides. Returns the result and that filter's name."""
+    for filt in filts:
+        r = run_hook(stash, cfg, filt, tag_id, ctx)
+        if r != "no match":
+            return r, filt.name
+    return "no match", None
+
+
+def select_all(stash, filt):
+    """Every scene one filter selects, by paging on id."""
     scenes, page = [], 1
     while True:
         ff = dict(filt.find_filter, per_page=100, page=page, sort="id", direction="ASC")
@@ -392,6 +417,22 @@ def run_all(stash, cfg, filt, tag_id):
             break
         page += 1
     log("i", f"{len(scenes)} scenes match {filt.name!r}")
+    return scenes
+
+
+def run_all(stash, cfg, filts, tag_id):
+    """Every scene any of the filters selects, from the task. The ids are
+    collected first: a filter that excludes the tag loses a scene on every
+    write, and paging the live result would skip past half of them. A
+    scene in several filters is tagged once."""
+    scenes, seen = [], set()
+    for filt in filts:
+        for sc in select_all(stash, filt):
+            if sc["id"] not in seen:
+                seen.add(sc["id"])
+                scenes.append(sc)
+    if len(filts) > 1:
+        log("i", f"{len(scenes)} scenes match any of the {len(filts)} filters")
     tagged = 0
     for i, sc in enumerate(scenes):
         r = tag_scene(stash, cfg, sc, tag_id)
@@ -419,23 +460,24 @@ def main():
     mode = args.get("mode") or "hook"
 
     try:
-        filt = saved_filter(stash, cfg["filterName"])
+        filts = saved_filters(stash, cfg["filterName"])
     except FilterError as e:
         # a warning per hook would flood the log while the filter is not
         # yet saved; the task is where someone looks for the reason
         log("w" if mode == "all" else "d",
-            f"{e}: nothing tagged. Set the plugin's 'Saved filter' to the name of a saved scene filter.")
+            f"{e}: nothing tagged. Set the plugin's 'Saved filter' to the name of a saved "
+            "scene filter, or several names separated by commas.")
         print(json.dumps({"output": "ok"}))
         return
     tag_id = ensure_tag(stash, cfg["tagName"])
 
     if mode == "all":
-        run_all(stash, cfg, filt, tag_id)
+        run_all(stash, cfg, filts, tag_id)
     else:
         ctx = args.get("hookContext") or {}
-        r = run_hook(stash, cfg, filt, tag_id, ctx)
+        r, name = run_hook_any(stash, cfg, filts, tag_id, ctx)
         if r == "tagged":
-            log("i", f"scene {ctx.get('id')}: tagged {cfg['tagName']} (matches {filt.name!r})")
+            log("i", f"scene {ctx.get('id')}: tagged {cfg['tagName']} (matches {name!r})")
     print(json.dumps({"output": "ok"}))
 
 

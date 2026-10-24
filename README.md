@@ -21,6 +21,13 @@ The plugin only ever adds the tag. It never removes it, so a scene that
 should drop out of the queue has to drop out of the filter: put "tag is not
 X" into the filter and whatever removes the tag keeps the scene out.
 
+Stash ANDs every criterion inside one saved filter, and its filter UI has
+no "or" between criteria. "Scenes with these performers, or any scene from
+these studios" is therefore two saved filters. The plugin's "Saved filter"
+setting takes several names separated by commas, and a scene in any of
+them gets the tag. Each filter needs its own "tag is not X" and whatever
+else keeps finished scenes out.
+
 ## Requirements
 
 * Stash v0.24 or later (plugin sources). Saved filters are read in the
@@ -46,10 +53,12 @@ takes care of everything after that.
   for the hooked scene through the saved filter plus `id = that scene`. One
   result means the scene matches, and it gets the tag (its other tags are
   kept). No result, nothing happens.
-* **Task** "Tag all matching scenes now": every scene the filter selects is
-  tagged. The ids are collected before any write, because a filter that
-  excludes the tag loses a scene on each write and paging the live result
-  would skip past half of them.
+* **Task** "Tag all matching scenes now": every scene any of the filters
+  selects is tagged, once. The ids are collected before any write, because
+  a filter that excludes the tag loses a scene on each write and paging the
+  live result would skip past half of them.
+* With several filters the hook tries them in the order given and the
+  first one that selects the scene decides; the log line names it.
 * A scene is created before it is scraped, so its studio and performers
   usually arrive in a later update; that is why the hook also listens to
   updates. The plugin's own write fires an update too, but by then the scene
@@ -75,13 +84,14 @@ not needed.
 
 A criterion the plugin does not understand stops it with a warning in the
 log, and nothing is tagged. Tagging through a filter with one criterion
-dropped would tag too much.
+dropped would tag too much. The same goes for a name in the setting that
+matches no saved filter: tagging through the others would tag too little.
 
 ## Settings
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| Saved filter | `FunGen` | Name of the saved scene filter. An exact name wins; otherwise a case-insensitive match if it is unique. |
+| Saved filter | `FunGen` | Name of the saved scene filter, or several names separated by commas (a scene in any of them is tagged). An exact name wins; otherwise a case-insensitive match if it is unique. One missing name stops the plugin. |
 | Tag to add | `FunGen` | Created if it does not exist. |
 | Skip scenes with a funscript beside the video | on | See above. |
 | Stash API key | empty | Optional; lets a long task outlive the hour-long plugin session. |

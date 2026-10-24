@@ -1,12 +1,12 @@
 name: Filter Tagger
 description: Adds a tag to every scene a saved scene filter selects, as soon as the scene is created or changed and on demand across the library. Describe the scenes that should carry the tag with an ordinary saved filter (for example "studio is one of my favourites, not interactive, not tagged FunGen"); the plugin only ever adds the tag, so put "tag is not X" in the filter and whatever removes the tag keeps the scene out.
-version: 1.0.0
+version: 1.1.0
 url: https://github.com/skeel-x/filterTagger
 
 settings:
   filterName:
     displayName: Saved filter
-    description: The name of the saved scene filter (Scenes page, saved filters) that selects the scenes to tag. Default FunGen.
+    description: The name of the saved scene filter (Scenes page, saved filters) that selects the scenes to tag, or several names separated by commas; a scene in any of them is tagged. Stash ANDs the criteria inside one filter, so "these performers or these studios" is two filters. Default FunGen.
     type: STRING
   tagName:
     displayName: Tag to add
