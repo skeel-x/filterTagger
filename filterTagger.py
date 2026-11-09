@@ -282,7 +282,8 @@ CRITERIA = {
     "orientation": _orientation, "oshash": _string, "path": _string, "performer_age": _int,
     "performer_count": _int, "performer_favorite": _bool, "performer_tags": _hier,
     "performers": _multi, "phash": _string, "phash_distance": _phash, "play_count": _int,
-    "play_duration": _int, "rating100": _int, "resolution": _resolution, "resume_time": _int,
+    "play_duration": _int, "production_date": _ranged, "rating100": _int, "resolution": _resolution,
+    "resume_time": _int,
     "stash_id_endpoint": _stash_id, "studios": _hier, "tag_count": _int, "tags": _hier,
     "title": _string, "updated_at": _ranged, "url": _string, "video_codec": _string,
 }

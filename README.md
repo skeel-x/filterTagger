@@ -71,13 +71,14 @@ takes care of everything after that.
 
 ### Which criteria are understood
 
-Everything the scene filter UI offers in Stash v0.31: tags, performers,
+Everything the scene filter UI offers in Stash v0.32: tags, performers,
 studios, groups, galleries, performer tags, performer favourite, performer
 age and count, rating, play count and duration, o counter, resume time,
 interactive and interactive speed, organized, path, title, details,
 director, code, URL, checksum, oshash, phash and phash distance, audio and
 video codec, bitrate, framerate, duration, file count, resolution,
-orientation, captions, date, created and updated at, last played at, tag
+orientation, captions, date, production date, created and updated at,
+last played at, tag
 count, is missing, has markers, stash id endpoint, duplicated. The saved
 filter's search text ("q") is honoured too; its sort and page size are
 not needed.

@@ -57,6 +57,7 @@ class SceneFilter(unittest.TestCase):
         got = ft.scene_filter({
             "date": {"modifier": "BETWEEN", "value": {"value": "2024-01-01", "value2": "2024-12-31"}},
             "created_at": {"modifier": "GREATER_THAN", "value": {"value": "2025-01-01 00:00"}},
+            "production_date": {"modifier": "LESS_THAN", "value": {"value": "2020-01-01"}},
             "resolution": {"modifier": "GREATER_THAN", "value": "1080p"},
             "stash_id_endpoint": {"modifier": "IS_NULL", "value": {"endpoint": "", "stashID": ""}},
             "orientation": {"value": ["landscape", "Portrait"]},
@@ -64,6 +65,7 @@ class SceneFilter(unittest.TestCase):
         })
         self.assertEqual(got["date"], {"modifier": "BETWEEN", "value": "2024-01-01", "value2": "2024-12-31"})
         self.assertEqual(got["created_at"], {"modifier": "GREATER_THAN", "value": "2025-01-01 00:00"})
+        self.assertEqual(got["production_date"], {"modifier": "LESS_THAN", "value": "2020-01-01"})
         self.assertEqual(got["resolution"], {"modifier": "GREATER_THAN", "value": "FULL_HD"})
         self.assertEqual(got["stash_id_endpoint"], {"modifier": "IS_NULL", "endpoint": "", "stash_id": ""})
         self.assertEqual(got["orientation"], {"value": ["LANDSCAPE", "PORTRAIT"]})
