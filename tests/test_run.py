@@ -20,8 +20,10 @@ SAVED = [{"id": "61", "name": "FunGen", "mode": "SCENES",
           "find_filter": {"q": None}}]
 
 
-def scene(sid, tags=(), path="/media/x/{sid}.mp4"):
-    return {"id": sid, "tags": [{"id": t} for t in tags], "files": [{"path": path.format(sid=sid)}]}
+def scene(sid, tags=(), path="/media/x/{sid}.mp4", performers=(), studio=None):
+    # performers and studio are the fake's own bookkeeping; the plugin never reads them
+    return {"id": sid, "tags": [{"id": t} for t in tags], "files": [{"path": path.format(sid=sid)}],
+            "performers": list(performers), "studio": studio}
 
 
 class FakeStash:
@@ -53,7 +55,15 @@ class FakeStash:
             return {"tagCreate": {"id": self.tags[v["i"]["name"]]}}
         if "findScenes" in query:
             f = v["f"]
-            ids = sorted(self.sets["performers" if "performers" in f else None], key=int)
+            base = f.get("AND", f)
+            ids = sorted(self.sets["performers" if "performers" in base else None], key=int)
+            if "AND" in f:
+                # the owner hook: the saved filter in AND, the owner outside it
+                if "performers" in f:
+                    want = set(f["performers"]["value"])
+                    ids = [i for i in ids if want & set(self.scenes[i]["performers"])]
+                if "studios" in f:
+                    ids = [i for i in ids if self.scenes[i]["studio"] in f["studios"]["value"]]
             if "id" in f:
                 ids = [i for i in ids if int(i) == f["id"]["value"]]
             ff = v.get("ff") or {}
@@ -196,6 +206,59 @@ class HookAnyFilter(unittest.TestCase):
         self.assertEqual(len(st.writes), 1)
 
 
+class OwnerHook(unittest.TestCase):
+    def test_performer_update_tags_that_performers_matching_scenes_only(self):
+        st = FakeStash(matching=[scene("1", performers=["p1"]), scene("2", performers=["p2"]),
+                                 scene("3", performers=["p1"], tags=["id:FunGen"])])
+        fs = ft.saved_filters(st, "FunGen")
+        n, names = ft.run_hook_owner(st, cfg(), fs, "id:FunGen", {"id": "p1", "type": "Performer.Update.Post"})
+        self.assertEqual((n, names), (1, ["FunGen"]))
+        self.assertEqual([w["id"] for w in st.writes], ["1"])
+
+    def test_owner_is_anded_onto_the_saved_filter_not_merged_into_it(self):
+        # the saved filter may carry its own performers criterion (here: p1);
+        # the hook's performer must not overwrite it
+        st = FakeStash(performers=[scene("8", performers=["p1", "p2"])])
+        fs = ft.saved_filters(st, "Studios")
+        n, _ = ft.run_hook_owner(st, cfg(), fs, "id:FunGen", {"id": "p2", "type": "Performer.Update.Post"})
+        self.assertEqual(n, 1)
+        q, v = [x for x in st.queries if "findScenes" in x[0]][0]
+        self.assertEqual(v["f"]["performers"], {"modifier": "INCLUDES", "value": ["p2"]})
+        self.assertEqual(v["f"]["AND"], fs[0].scene_filter)
+        self.assertEqual(v["ff"]["per_page"], 100)
+
+    def test_studio_update_uses_the_studios_criterion_with_subsidiaries(self):
+        st = FakeStash(matching=[scene("1", studio="1"), scene("2", studio="2")])
+        fs = ft.saved_filters(st, "FunGen")
+        n, _ = ft.run_hook_owner(st, cfg(), fs, "id:FunGen", {"id": 1, "type": "Studio.Update.Post"})
+        self.assertEqual(n, 1)
+        self.assertEqual([w["id"] for w in st.writes], ["1"])
+        q, v = [x for x in st.queries if "findScenes" in x[0]][0]
+        self.assertEqual(v["f"]["studios"], {"modifier": "INCLUDES", "value": ["1"], "depth": -1})
+
+    def test_other_hook_types_and_missing_ids_are_ignored(self):
+        st = FakeStash(matching=[scene("1", performers=["p1"])])
+        fs = ft.saved_filters(st, "FunGen")
+        self.assertIsNone(ft.owner_of({"id": "p1", "type": "Tag.Update.Post"}))
+        self.assertIsNone(ft.owner_of({"type": "Performer.Update.Post"}))
+        self.assertIsNone(ft.owner_of({"id": "7", "type": "Scene.Update.Post"}))
+        self.assertEqual(ft.run_hook_owner(st, cfg(), fs, "id:FunGen", {"id": "p1", "type": "Tag.Update.Post"}), (0, []))
+        self.assertFalse([x for x in st.queries if "findScenes" in x[0]])
+        self.assertEqual(st.writes, [])
+
+    def test_scene_in_two_filters_is_written_once_and_both_filters_named(self):
+        st = FakeStash(matching=[scene("7", performers=["p1"])], performers=[scene("7", performers=["p1"])])
+        fs = ft.saved_filters(st, "FunGen, Studios")
+        n, names = ft.run_hook_owner(st, cfg(), fs, "id:FunGen", {"id": "p1", "type": "Performer.Update.Post"})
+        self.assertEqual((n, names), (1, ["FunGen", "Studios"]))
+        self.assertEqual(len(st.writes), 1)
+
+    def test_nothing_to_tag_names_no_filter(self):
+        st = FakeStash(matching=[scene("1", performers=["p1"])])
+        fs = ft.saved_filters(st, "FunGen")
+        self.assertEqual(ft.run_hook_owner(st, cfg(), fs, "id:FunGen", {"id": "p9", "type": "Performer.Update.Post"}), (0, []))
+
+
 class TagAll(unittest.TestCase):
     def test_union_of_filters_tags_each_scene_once(self):
         st = FakeStash(matching=[scene("1"), scene("2")], performers=[scene("2"), scene("3")])
@@ -241,7 +304,8 @@ class Manifest(unittest.TestCase):
     def test_yml_declares_hook_and_task(self):
         with open(os.path.join(os.path.dirname(ft.__file__), "filterTagger.yml")) as f:
             yml = f.read()
-        for s in ("Scene.Create.Post", "Scene.Update.Post", "mode: all", "mode: hook",
+        for s in ("Scene.Create.Post", "Scene.Update.Post", "Performer.Update.Post", "Studio.Update.Post",
+                  "mode: all", "mode: hook",
                   "filterName:", "tagName:", "skipWithFunscript:", "apiKey:"):
             self.assertIn(s, yml)
 

@@ -59,6 +59,12 @@ takes care of everything after that.
   live result would skip past half of them.
 * With several filters the hook tries them in the order given and the
   first one that selects the scene decides; the log line names it.
+* **Hook** (`Performer.Update.Post`, `Studio.Update.Post`): favouriting a
+  performer, or tagging or renaming a studio, changes no scene, so the
+  scene hook never hears of it. This hook asks for that performer's or
+  studio's scenes (subsidiary studios included) through each saved filter,
+  the owner ANDed on as its own branch so a filter with a performers or
+  studios criterion of its own keeps it, and tags what the filters select.
 * A scene is created before it is scraped, so its studio and performers
   usually arrive in a later update; that is why the hook also listens to
   updates. The plugin's own write fires an update too, but by then the scene

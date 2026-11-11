@@ -1,6 +1,6 @@
 name: Filter Tagger
-description: Adds a tag to every scene a saved scene filter selects, as soon as the scene is created or changed and on demand across the library. Describe the scenes that should carry the tag with an ordinary saved filter (for example "studio is one of my favourites, not interactive, not tagged FunGen"); the plugin only ever adds the tag, so put "tag is not X" in the filter and whatever removes the tag keeps the scene out.
-version: 1.1.1
+description: Adds a tag to every scene a saved scene filter selects, as soon as the scene is created or changed, as soon as one of its performers or its studio is changed, and on demand across the library. Describe the scenes that should carry the tag with an ordinary saved filter (for example "studio is one of my favourites, not interactive, not tagged FunGen"); the plugin only ever adds the tag, so put "tag is not X" in the filter and whatever removes the tag keeps the scene out.
+version: 1.2.0
 url: https://github.com/skeel-x/filterTagger
 
 settings:
@@ -39,5 +39,12 @@ hooks:
     triggeredBy:
       - Scene.Create.Post
       - Scene.Update.Post
+    defaultArgs:
+      mode: hook
+  - name: Tag on performer and studio update
+    description: When a performer or studio is changed (favourited, tagged, renamed), tag every scene of theirs the saved filter now selects. Favouriting a performer changes no scene, so the scene hook alone would miss their existing scenes.
+    triggeredBy:
+      - Performer.Update.Post
+      - Studio.Update.Post
     defaultArgs:
       mode: hook

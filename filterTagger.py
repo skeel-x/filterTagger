@@ -4,8 +4,8 @@ filter selects.
 
 You describe the scenes that should carry the tag with an ordinary saved
 scene filter in Stash; the plugin adds the tag to any scene that matches,
-as soon as the scene is created or changed (hook) or across the library
-(task). It never removes the tag: put "tag is not X" into the filter and
+as soon as the scene is created or changed, or one of its performers or
+its studio is changed (hooks), or across the library (task). It never removes the tag: put "tag is not X" into the filter and
 whatever takes the tag off keeps the scene out.
 
 Standard library only.
@@ -407,7 +407,7 @@ def run_hook_any(stash, cfg, filts, tag_id, ctx):
     return "no match", None
 
 
-def select_all(stash, filt):
+def select_all(stash, filt, level="i"):
     """Every scene one filter selects, by paging on id."""
     scenes, page = [], 1
     while True:
@@ -417,21 +417,72 @@ def select_all(stash, filt):
         if not d["scenes"] or len(scenes) >= d["count"]:
             break
         page += 1
-    log("i", f"{len(scenes)} scenes match {filt.name!r}")
+    log(level, f"{len(scenes)} scenes match {filt.name!r}")
     return scenes
 
 
-def run_all(stash, cfg, filts, tag_id):
-    """Every scene any of the filters selects, from the task. The ids are
-    collected first: a filter that excludes the tag loses a scene on every
-    write, and paging the live result would skip past half of them. A
-    scene in several filters is tagged once."""
-    scenes, seen = [], set()
+def collect(stash, filts, level="i"):
+    """Every scene any of the filters selects, each once, and the names of
+    the filters that selected something. The ids are collected before any
+    write: a filter that excludes the tag loses a scene on every write, and
+    paging the live result would skip past half of them."""
+    scenes, seen, names = [], set(), []
     for filt in filts:
-        for sc in select_all(stash, filt):
+        found = select_all(stash, filt, level)
+        if found:
+            names.append(filt.name)
+        for sc in found:
             if sc["id"] not in seen:
                 seen.add(sc["id"])
                 scenes.append(sc)
+    return scenes, names
+
+
+OWNERS = {"Performer": "performers", "Studio": "studios"}
+
+
+def owner_of(ctx):
+    """For a performer or studio hook, the scene criterion that selects that
+    object's scenes, as (criterion name, criterion); None for any other
+    hook. A studio's subsidiaries count as its scenes: a filter on the
+    parent studio sees them too."""
+    kind = str(ctx.get("type") or "").split(".")[0]
+    key = OWNERS.get(kind)
+    if key is None or ctx.get("id") is None:
+        return None
+    crit = {"modifier": "INCLUDES", "value": [str(ctx["id"])]}
+    if key == "studios":
+        crit["depth"] = -1
+    return key, crit
+
+
+def run_hook_owner(stash, cfg, filts, tag_id, ctx):
+    """A performer or studio changed: tag every scene of theirs that a
+    filter now selects. Favouriting a performer changes no scene, so the
+    scene hook never sees it; this one does. The owner is ANDed onto the
+    saved filter as a separate branch, so a filter with its own performers
+    or studios criterion keeps it. Returns how many were tagged and the
+    names of the filters that selected something."""
+    owner = owner_of(ctx)
+    if owner is None:
+        return 0, []
+    key, crit = owner
+    narrowed = [SavedFilter(f.name, {key: crit, "AND": f.scene_filter}, f.find_filter) for f in filts]
+    scenes, names = collect(stash, narrowed, level="d")
+    tagged = 0
+    for sc in scenes:
+        r = tag_scene(stash, cfg, sc, tag_id)
+        if r == "tagged":
+            tagged += 1
+        else:
+            log("d", f"scene {sc['id']}: {r}")
+    return tagged, names
+
+
+def run_all(stash, cfg, filts, tag_id):
+    """Every scene any of the filters selects, from the task, each tagged
+    once."""
+    scenes, _ = collect(stash, filts)
     if len(filts) > 1:
         log("i", f"{len(scenes)} scenes match any of the {len(filts)} filters")
     tagged = 0
@@ -476,9 +527,16 @@ def main():
         run_all(stash, cfg, filts, tag_id)
     else:
         ctx = args.get("hookContext") or {}
-        r, name = run_hook_any(stash, cfg, filts, tag_id, ctx)
-        if r == "tagged":
-            log("i", f"scene {ctx.get('id')}: tagged {cfg['tagName']} (matches {name!r})")
+        if owner_of(ctx):
+            n, names = run_hook_owner(stash, cfg, filts, tag_id, ctx)
+            if n:
+                kind = str(ctx.get("type")).split(".")[0].lower()
+                log("i", f"{kind} {ctx.get('id')} changed: tagged {n} scenes with {cfg['tagName']} "
+                         f"(matches {', '.join(repr(x) for x in names)})")
+        else:
+            r, name = run_hook_any(stash, cfg, filts, tag_id, ctx)
+            if r == "tagged":
+                log("i", f"scene {ctx.get('id')}: tagged {cfg['tagName']} (matches {name!r})")
     print(json.dumps({"output": "ok"}))
 
 
